@@ -1,0 +1,31 @@
+[project]
+name = "delta-inspect"
+version = "0.1.0"
+authors = [
+    { name = "Franz Wöllert", email = "franz.woellert@heidelberg.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "typer",
+    "pydantic",
+    "plotly",
+    "fsspec",
+    "polars[pyarrow]"
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "mypy",
+    "deltalake",
+    "ipykernel"
+]
+
+[project.scripts]
+delta-inspect = "delta_inspect.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -294,9 +294,25 @@ Create a Python project named `delta-inspect` with the following layout:
 
 delta_inspect/
 ├── cli/
-│   ├── __init__.py
+│   ├── filesizes.py
+│   ├── clustering.py
+│   ├── summary.py
+│   └── versions.py
+├── filesizes/
+│   ├── core.py
+│   ├── model.py
+│   └── plot.py
+├── clustering/
+│   ├── core.py
+│   ├── model.py
+│   └── plot.py
+├── summary/
+│   ├── core.py
+│   └── model.py
 ├── util/
-│   ├── __init__.py
+│   ├── delta_reader.py
+│   ├── fs.py
+│   └── log.py
 tests/
 ├── test_util_delta_reader.py
 
