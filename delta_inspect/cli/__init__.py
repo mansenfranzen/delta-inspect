@@ -2,6 +2,7 @@
 
 import typer
 from delta_inspect.cli.summary import summary_command
+from delta_inspect.cli.clustering import clustering_command
 
 app = typer.Typer(
     name="delta-inspect", 
@@ -10,7 +11,8 @@ app = typer.Typer(
 )
 
 # Add subcommands
-app.command("summary", help="Generate summary information for Delta Lake tables")(summary_command)
+app.command("summary")(summary_command)
+app.command("clustering")(clustering_command)
 
 # Export for entry point
 __all__ = ["app"]

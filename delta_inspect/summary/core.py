@@ -43,7 +43,7 @@ def _extract_column_statistic(df_add_actions: pl.DataFrame, column: str) -> Colu
         expr = [
             pl.col("partition_values").struct.field(column).min().alias("min"),
             pl.col("partition_values").struct.field(column).max().alias("max"),
-            pl.lit(0).alias("null_count") 
+            pl.lit(0).alias("null_count")  # Partition columns should never be null
         ]
     else:
         expr = [
