@@ -3,6 +3,7 @@
 import typer
 from delta_inspect.cli.summary import summary_command
 from delta_inspect.cli.clustering import clustering_command
+from delta_inspect.cli.distribution import distribution_command
 
 app = typer.Typer(
     name="delta-inspect", 
@@ -13,6 +14,7 @@ app = typer.Typer(
 # Add subcommands
 app.command("summary")(summary_command)
 app.command("clustering")(clustering_command)
+app.command("distribution")(distribution_command)
 
 # Export for entry point
 __all__ = ["app"]

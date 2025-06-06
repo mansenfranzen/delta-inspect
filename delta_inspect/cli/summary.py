@@ -1,17 +1,11 @@
 """CLI subcommand for Delta table summary functionality."""
 
-from pydantic import BaseModel
 import typer
 from typing import Annotated
-from pathlib import Path
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
-from rich.columns import Columns
 import json
 
-from delta_inspect.summary.core import summarize_table
+from delta_inspect.summary.core import summary
 from delta_inspect.summary.model import TableSummary
 from delta_inspect.util.cli import (
     TableColumn,
@@ -39,15 +33,19 @@ def create_overview_table(summary: TableSummary):
         ["Description", summary.metadata.description],
         ["", ""],
         ["Version", str(summary.version)],
-        ["Created Time", str(summary.metadata.created_time)],
+        ["Created", str(summary.metadata.created_time)],
         ["Last Commit", summary.last_commit_timestamp],
+        ["Last Vacuum", summary.last_vacuum_timestamp],
+        ["Last Optimize", summary.last_optimize_timestamp],
         ["", ""],
         ["Reader Version", str(summary.protocol.min_reader_version)],
         ["Reader Features", str(summary.protocol.reader_features)],
         ["Writer Version", str(summary.protocol.min_writer_version)],
         ["Writer Features", str(summary.protocol.writer_features)],
         ["", ""],
-        ["Partition Columns", str(summary.metadata.partition_columns)],
+        ["Columns Partitions", str(summary.metadata.partition_columns)],
+        ["Columns Clustering", str(summary.clustering_columns)],
+        ["Columns Zorder", str(summary.zorder_columns)],
         ["Table Properties", json.dumps(summary.metadata.configuration, indent=2)],
     ]
     console_table(console=console, title="Overview", columns=columns, rows=rows)
@@ -129,8 +127,8 @@ def summary_command(
 
     console_header(console=console, title="Delta Table Summary")
 
-    summary = summarize_table(path)
-    create_overview_table(summary)
-    create_schema_table(summary)
-    create_table_stats_table(summary)
-    create_column_stats_table(summary)
+    summary_report = summary(path)
+    create_overview_table(summary_report)
+    create_schema_table(summary_report)
+    create_table_stats_table(summary_report)
+    create_column_stats_table(summary_report)

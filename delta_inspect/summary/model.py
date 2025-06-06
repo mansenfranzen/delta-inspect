@@ -37,10 +37,18 @@ class TableMetadata(BaseModel):
     configuration: dict[str, str] = Field(default_factory=dict)
 
 class TableSummary(BaseModel):
-    version: int
-    last_commit_timestamp: datetime.datetime
-    table_statistics: TableStatistics
-    column_statistics: dict[str, ColumnStatistics]
     schema_: list[SchemaField] = Field(alias='schema')
     metadata: TableMetadata
+
+    version: int
     protocol: ProtocolVersions
+
+    last_commit_timestamp: datetime.datetime
+    last_vacuum_timestamp: datetime.datetime | None = None
+    last_optimize_timestamp: datetime.datetime | None = None
+
+    clustering_columns: list[str] = Field(default_factory=list)
+    zorder_columns: list[str] = Field(default_factory=list)
+
+    table_statistics: TableStatistics
+    column_statistics: dict[str, ColumnStatistics]

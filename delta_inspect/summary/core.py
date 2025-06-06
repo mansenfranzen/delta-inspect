@@ -1,8 +1,11 @@
 # File: delta_inspect/__init__.py
 
 import datetime
+import json
 from deltalake import DeltaTable
 import polars as pl
+from delta_inspect.util.history import extract_operation_params
+from delta_inspect.util.misc import to_datetime
 from delta_inspect.util.table_loader import load_table
 from delta_inspect.summary.model import ColumnStatistics, SchemaField, TableMetadata, TableStatistics, TableSummary
 
@@ -40,9 +43,10 @@ def _extract_column_statistic(df_add_actions: pl.DataFrame, column: str) -> Colu
         partition_columns = []
 
     if column in partition_columns:
+        pcol = pl.col("partition_values").struct.field(column)
         expr = [
-            pl.col("partition_values").struct.field(column).min().alias("min"),
-            pl.col("partition_values").struct.field(column).max().alias("max"),
+            pcol.min().alias("min"),
+            pcol.max().alias("max"),
             pl.lit(0).alias("null_count")  # Partition columns should never be null
         ]
     else:
@@ -65,12 +69,27 @@ def _extract_column_statistics(df_add_actions: pl.DataFrame) -> dict[str, Column
     return {column: _extract_column_statistic(df_add_actions, column) for column in columns}
 
 
-def _extract_last_commit_timestamp(dt: DeltaTable) -> datetime.datetime:
-    last_commit_timestamp_ms = dt.history(1)[0]["timestamp"]
+def _extract_last_commit_timestamp(history: list[dict]) -> datetime.datetime:
+    last_commit_timestamp_ms = history[0]["timestamp"]
     return datetime.datetime.fromtimestamp(last_commit_timestamp_ms / 1000)
 
 
-def summarize_table(path: str) -> TableSummary:
+def _extract_last_optimize_timestamp(history: list[dict]) -> datetime.datetime | None:
+    for commit in history:
+        if commit.get("operation") == "OPTIMIZE":
+            return to_datetime(commit["timestamp"])
+
+def _extract_last_vacuum_timestamp(history: list[dict]) -> datetime.datetime | None:
+    for commit in history:
+        if commit.get("operation") != "VACUUM END":
+            continue
+
+        status = commit.get('operationParameters', {}).get('status')
+        if status == "COMPLETED":
+            return to_datetime(commit["timestamp"])
+
+
+def summary(path: str) -> TableSummary:
     """
     Summarize a Delta Lake table by analyzing its metadata and active files.
     """
@@ -88,7 +107,13 @@ def summarize_table(path: str) -> TableSummary:
     table_statistics = _extract_table_statistics(dt, df_add_actions)
     column_statistics = _extract_column_statistics(df_add_actions)
 
-    last_commit_timestamp = _extract_last_commit_timestamp(dt)
+    history = dt.history()
+    last_commit_timestamp = _extract_last_commit_timestamp(history)
+    last_vacuum_timestamp = _extract_last_vacuum_timestamp(history)
+    last_optimize_timestamp = _extract_last_optimize_timestamp(history)
+    clustering_columns = extract_operation_params(history=history, param_key="clusterBy")
+    zorder_columns = extract_operation_params(history=history, param_key="zOrderBy")
+    
     
     return TableSummary(
         version=version,
@@ -97,5 +122,9 @@ def summarize_table(path: str) -> TableSummary:
         protocol=dt.protocol(),
         table_statistics=table_statistics,
         column_statistics=column_statistics,
-        last_commit_timestamp=last_commit_timestamp
+        last_commit_timestamp=last_commit_timestamp,
+        last_vacuum_timestamp=last_vacuum_timestamp,
+        last_optimize_timestamp=last_optimize_timestamp,
+        clustering_columns=clustering_columns,
+        zorder_columns=zorder_columns
     )

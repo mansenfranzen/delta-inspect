@@ -1,8 +1,10 @@
 from deltalake import DeltaTable
-from pydantic import BaseModel
+from pydantic import Field
+
+from delta_inspect.util.model import BaseDistribution
 
 
-class ClusteringHealth(BaseModel):
+class Clustering(BaseDistribution):
     """
     Represents clustering health of a Delta Lake table for specified columns.
     
@@ -16,21 +18,12 @@ class ClusteringHealth(BaseModel):
     """
 
     dt: DeltaTable
-    columns: list[str]
 
-    count_files_total: int
-    count_files_no_overlap: int
-    count_files_with_overlap: int
-
-    min: int
-    q05: int
-    q25: int
-    q50: int
-    q75: int
-    q95: int
-    max: int
-    mean: float
-    std: float
-
-    hist_bins: list[int]
-    hist_cnts: list[int]
+    analyzed_columns: list[str]
+    partition_columns: list[str] = Field(default_factory=list)
+    clustering_columns: list[str] = Field(default_factory=list)
+    zorder_columns: list[str] = Field(default_factory=list)
+    
+    count_no_overlap: int
+    count_with_overlap: int
+    count_without_min_max: int

@@ -3,11 +3,17 @@ import polars as pl
 import polars.selectors as cs
 
 from typing import Tuple
-from pydantic import BaseModel
 from rtree import index
 
-from delta_inspect.clustering.model import ClusteringHealth
+from delta_inspect.clustering.model import Clustering
+from delta_inspect.util.history import extract_operation_params
+from delta_inspect.util.statistics import (
+    compute_distribution_metrics,
+    compute_histogram_metrics,
+)
 from delta_inspect.util.table_loader import load_table
+
+BINS = list(range(17)) + [32, 64, 128]
 
 
 def fill_min_max_values(dt: DeltaTable, columns: list[str]) -> pl.DataFrame:
@@ -112,6 +118,20 @@ def apply_numerical_encoding(df: pl.DataFrame, columns: list[str]) -> pl.DataFra
     return df.select("path", *expr)
 
 
+def remove_nulls(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Remove rows with null values from the DataFrame because R-tree index
+    does not support null values in the bounding box.
+
+    Args:
+        df (pl.DataFrame): The input DataFrame.
+
+    Returns:
+        pl.DataFrame: DataFrame with null values removed.
+    """
+    return df.drop_nulls()
+
+
 def create_rtree_index(df_encoded: pl.DataFrame) -> index.Index:
     """
     Create an R-tree index from the encoded DataFrame.
@@ -133,7 +153,7 @@ def create_rtree_index(df_encoded: pl.DataFrame) -> index.Index:
 
 
 def get_overlapping_partitions_count(
-    rindex: index.Index, df_encoded: pl.DataFrame
+    rindex: index.Index, df_non_nulls: pl.DataFrame
 ) -> pl.DataFrame:
     """
     Get overlapping partitions count from the R-tree index.
@@ -146,11 +166,11 @@ def get_overlapping_partitions_count(
         pl.DataFrame: DataFrame with overlapping partitions.
     """
 
-    bbox_column_indices = range(1, df_encoded.shape[1])
-    df_bbox = df_encoded.select(cs.by_index(bbox_column_indices))
+    bbox_column_indices = range(1, df_non_nulls.shape[1])
+    df_bbox = df_non_nulls.select(cs.by_index(bbox_column_indices))
     overlap_counts = [rindex.count(row) - 1 for row in df_bbox.iter_rows()]
 
-    return df_encoded.with_columns(overlap_count=pl.Series(overlap_counts))
+    return df_non_nulls.with_columns(overlap_count=pl.Series(overlap_counts))
 
 
 def compute_overlap_metrics(df_overlap_count: pl.DataFrame) -> dict[str, int | float]:
@@ -166,41 +186,14 @@ def compute_overlap_metrics(df_overlap_count: pl.DataFrame) -> dict[str, int | f
 
     pcol = pl.col("overlap_count")
     expr = [
-        pl.len().alias("count_files_total"),
-        pcol.eq(0).sum().alias("count_files_no_overlap"),
-        pcol.gt(0).sum().alias("count_files_with_overlap"),
-        pcol.min().alias("min"),
-        pcol.quantile(0.05).alias("q05"),
-        pcol.quantile(0.25).alias("q25"),
-        pcol.quantile(0.5).alias("q50"),
-        pcol.quantile(0.75).alias("q75"),
-        pcol.quantile(0.95).alias("q95"),
-        pcol.max().alias("max"),
-        pcol.mean().alias("mean"),
-        pcol.std().alias("std"),
+        pcol.eq(0).sum().alias("count_no_overlap"),
+        pcol.gt(0).sum().alias("count_with_overlap"),
     ]
 
     return df_overlap_count.select(*expr).row(0, named=True)
 
 
-def compute_overlap_histogram(
-    df_overlap_count: pl.DataFrame,
-) -> Tuple[list[int], list[int]]:
-    # define histogram bins, including max bin from overlap count
-    bin_edges = list(range(-1, 17)) + [32, 64, 128]  #
-    max_overlap = df_overlap_count.select(pl.max("overlap_count")).item()
-    if max_overlap >= 128:
-        bin_edges.append(max_overlap + 1)
-
-    # create histogram of overlap counts
-    df_hist = df_overlap_count["overlap_count"].hist(bins=bin_edges)
-    hist_bins = df_hist["breakpoint"].to_list()
-    hist_cnts = df_hist["count"].to_list()
-
-    return hist_bins, hist_cnts
-
-
-def clustering_health(path: str, columns: list[str]) -> ClusteringHealth:
+def clustering_health(path: str, columns: list[str]) -> Clustering:
     """
     Get an R-tree index for the specified columns in the DataFrame.
 
@@ -219,18 +212,36 @@ def clustering_health(path: str, columns: list[str]) -> ClusteringHealth:
         columns=columns,
     )
     df_encoded = apply_numerical_encoding(df_filled, columns)
-    rindex = create_rtree_index(df_encoded)
+    null_counts = df_encoded.select(pl.any_horizontal(pl.all().is_null())).sum().item()
+    df_non_nulls = remove_nulls(df_encoded)
+
+    rindex = create_rtree_index(df_non_nulls)
     df_overlap_count = get_overlapping_partitions_count(
-        rindex=rindex, df_encoded=df_encoded
+        rindex=rindex, df_non_nulls=df_non_nulls
     )
 
-    overlap_metrics = compute_overlap_metrics(df_overlap_count)
-    hist_bins, hist_cnts = compute_overlap_histogram(df_overlap_count)
+    metrics_overlap = compute_overlap_metrics(df_overlap_count)
+    metrics_distribution = compute_distribution_metrics(
+        df=df_overlap_count, column="overlap_count"
+    )
 
-    return ClusteringHealth(
+    hist = compute_histogram_metrics(
+        df=df_overlap_count, column="overlap_count", bins=BINS
+    )
+
+    history = dt.history()
+    partition_columns = dt.metadata().partition_columns
+    clustering_columns = extract_operation_params(history=history, param_key="clusterBy")
+    zorder_columns = extract_operation_params(history=history, param_key="zOrderBy")
+
+    return Clustering(
         dt=dt,
-        columns=columns,
-        hist_bins=hist_bins,
-        hist_cnts=hist_cnts,
-        **overlap_metrics,
+        analyzed_columns=columns,
+        partition_columns=partition_columns,
+        clustering_columns=clustering_columns,
+        zorder_columns=zorder_columns,
+        hist=hist,
+        count_without_min_max=null_counts,
+        **metrics_distribution,
+        **metrics_overlap,
     )
